@@ -1,0 +1,237 @@
+EE650,Basics of Modern Control Systems
+
+Course Project Proposal
+
+Risk-Sensitive Stochastic Model Predictive Control (SMPC) for Autonomous Rover
+Navigation in High-Variance Terrain
+Team TerraRisk
+Sivaganesh B. • Sushil Krishna K. • Ramya Rasika S. R. • Kanishka S.
+Indian Institute of Technology Kanpur
+August 15, 2026
+
+Abstract
+Autonomous rovers operating on unstructured, deformable terrain,planetary regolith, sand, or mud,must plan
+trajectories under substantial and often heavy-tailed uncertainty in soil mechanics. Standard deterministic Model
+Predictive Control (MPC) and Gaussian Stochastic MPC (SMPC) either react too conservatively to unknown
+terrain or under-weight rare but catastrophic entrapment events caused by hidden pockets of highly
+compressible soil. Existing risk-aware navigation methods largely infer this risk from exteroceptive,
+geometry-based sensing (LiDAR and camera imagery of elevation, roughness, or slope), which cannot distinguish
+visually similar terrain patches that differ sharply in underlying soil strength. This project formulates a
+Conditional Value-at-Risk (CVaR)-based SMPC controller that supplements standard LiDAR/camera perception
+with direct physical measurements of the rover's own interaction with the ground,wheel slip, sinkage depth,
+drive-motor torque, and body attitude,feeding a Bekker-Wong terramechanics model so that risk is evaluated
+from the soil's actual mechanical behaviour rather than its appearance alone. The controller is benchmarked in
+simulation against deterministic NMPC and Gaussian SMPC baselines on entrapment rate and path efficiency.
+
+1. Engineering System
+The engineering system under study is a class of Off-Road Unmanned Ground Vehicles (UGVs), with particular
+emphasis on planetary exploration rovers. The scope is narrowed to the independent wheel-drive and steering
+control architecture of a skid-steer or Ackermann-type rover operating on unstructured, deformable ground
+where the vehicle-terrain interaction model,captured through classical Bekker-Wong terramechanics,is only
+known probabilistically. The controller sits at the trajectory-planning and low-level actuation interface: it
+consumes probabilistic terrain estimates and produces steering-angle and wheel-torque/velocity commands over
+a finite receding horizon. Unlike prior systems that derive these terrain estimates purely from exteroceptive
+sensing (LiDAR/camera), the rover here is additionally instrumented to sense its own physical interaction with
+the ground, as detailed in Section 3.
+
+2. Problem Statement
+In off-road and extraterrestrial navigation, terrain information is typically available only as probabilistic estimates
+of soil cohesion and internal friction angle, obtained from orbital imagery or forward-facing sensors. Classical
+MPC and even standard Gaussian SMPC formulations assume light-tailed (typically Gaussian) uncertainty and
+enforce simple chance constraints on state variables. Real terrain hazards, however,such as isolated pockets of
+
+highly compressible soil hidden beneath a visually uniform surface,exhibit heavy-tailed statistics: rare but severe
+events dominate risk.
+A further, related limitation runs through most existing risk-aware off-road planners, including the closest prior
+work identified in Section 4.3: their risk estimate is built almost entirely from LiDAR and camera data,that is,
+from the geometry and appearance of the terrain (elevation, roughness, slope). These sensors answer “what
+does the ground look like,” not “how will the ground actually behave under my wheel.” Two patches of terrain
+can be geometrically and visually near-identical,flat, uniform sand,while one is firmly packed and fully traversable
+and the other is loosely packed and capable of causing entrapment. A purely LiDAR/camera-based risk map
+cannot tell these apart, which forces a choice between two failure modes: treat all visually-ambiguous terrain as
+safe (under-reacts to real tail risk) or treat all of it as hazardous (over-reacts, discards otherwise-traversable
+routes, and needlessly restricts the paths the rover is willing to explore).
+When a rover enters an undetected hazard zone, excessive wheel slip drives sinkage past a recoverable
+threshold, resulting in irreversible entrapment and mission loss. The central control-theoretic problem addressed
+by this project is therefore twofold: (i) to ground terrain-risk estimation in the physical soil-mechanical quantities
+that actually govern sinkage, rather than in geometric/visual proxies alone, and (ii) to design a
+trajectory-planning and control law that explicitly bounds the worst-case (tail) risk of catastrophic sinkage arising
+from that estimate, rather than only its expected value,while remaining computationally tractable within a
+receding-horizon framework and respecting hard actuator limits such as motor torque bounds.
+
+3. Objectives
+•​ Develop a stochastic vehicle-terrain model: formulate a simplified rover dynamic model with probabilistic
+
+wheel-slip and sinkage states, parameterised by uncertain soil cohesion and internal friction angle
+following Bekker-Wong terramechanics.
+•​ Extend terrain sensing beyond LiDAR/camera: in addition to standard exteroceptive perception (used for
+
+geometry, obstacles, and coarse terrain classification), incorporate direct physical/proprioceptive
+measurements,wheel slip ratio (commanded vs. actual wheel-ground speed), wheel sinkage depth
+(suspension deflection or visual wheel-track depth), drive-motor torque/current, and IMU-sensed body
+pitch/roll,so that soil cohesion, friction angle, and sinkage exponent can be inferred from the rover's actual
+physical interaction with the ground, not only from its visual appearance.
+•​ Formulate a coherent risk measure: integrate Conditional Value-at-Risk (CVaR) into the MPC cost function
+
+to penalise the expected value of worst-case sinkage outcomes rather than only their mean, using the
+physically-grounded terrain estimate above as its input rather than a geometry-only risk map.
+•​ Design the CVaR-SMPC controller: construct a risk-sensitive stochastic MPC that jointly optimises steering
+
+and velocity/torque commands over a finite prediction horizon, subject to hard actuator constraints (motor
+torque limits) and a tunable risk-bounded chance constraint on catastrophic sinkage probability.
+•​ Benchmark in simulation: evaluate entrapment rate versus path efficiency for the proposed CVaR-SMPC
+
+against (i) a deterministic Nonlinear MPC (NMPC) baseline and (ii) a Gaussian-noise SMPC baseline, on a
+stochastically generated terrain map with patchy high-risk zones, and specifically test whether the added
+
+physical sensing allows the rover to safely traverse and explore more of the visually-ambiguous terrain than
+a LiDAR/camera-only baseline, without increasing entrapment rate.
+
+4. Literature Survey
+The proposal draws on three intersecting bodies of work: predictive control for rover and off-road trajectory
+tracking, terramechanics-based slip-sinkage modelling, and CVaR-based risk-sensitive planning and control.
+Representative works and the corresponding gap this project targets are summarised below.
+
+4.1 Predictive Control for Rover / Off-Road Trajectory Tracking
+Zheng and Zhu [1] developed a stochastic time-varying MPC for trajectory tracking of a wheeled mobile robot,
+showing that explicitly modelling time-varying uncertainty in the tracking-error dynamics improves robustness
+over a fixed-noise-model MPC. Li, Du, and Zhang [2] surveyed path-planning approaches for autonomous
+vehicles specifically in off-road scenarios, highlighting that most off-road planners still rely on geometric or
+cost-map heuristics,i.e., LiDAR/camera-derived elevation and roughness,rather than a probabilistic,
+physically-grounded terrain model embedded in the controller itself. He, Sun, Yang, and Gao [3] designed an
+MPC-based trajectory-tracking controller for a novel wheeled-legged planetary rover, demonstrating that MPC is
+a practical on-board control architecture for rovers with complex mobility mechanisms, but under a deterministic
+terrain assumption. Taken together, this body of work establishes MPC as the standard trajectory-tracking
+framework for wheeled and rover platforms, yet none of these three formulations treats the terrain interaction
+itself as an uncertain, risk-bearing quantity inside the optimization, and none incorporates physical
+(proprioceptive) sensing of soil behaviour.
+
+4.2 Terramechanics-Based Slip-Sinkage Modelling
+Ishigami, Miwa, Nagatani, and Yoshida [4] derived a terramechanics-based steering model for planetary rovers
+on loose soil, extending Bekker-Wong theory to predict slip and lateral force during steering manoeuvres. Ding,
+Gao, Deng, and Tao [5] developed a wheel slip-sinkage prediction model for lunar rovers, refining the sinkage
+exponent to capture how sinkage grows disproportionately with slip ratio rather than remaining a static function
+of vertical load. Both works provide accurate, physically grounded slip-sinkage models built from exactly the kind
+of physical quantities (slip, torque, sinkage) this project proposes to sense onboard,but both are used for state
+estimation and reactive traction control rather than being embedded as the uncertain dynamics inside a
+predictive planner: the model informs the controller only after slip has begun, not before the rover commits to a
+hazardous region, and neither work couples this physical sensing with a forward-looking, risk-sensitive
+optimization.
+
+4.3 CVaR and Risk-Sensitive Predictive Control
+Blackmore, Ono, and Williams [6] formulated chance-constrained optimal path planning with obstacles,
+establishing the standard probabilistic-constraint baseline against which CVaR-based methods are typically
+compared; chance constraints bound only the probability of a violation, not its severity, so they cannot
+distinguish a barely-exceeded constraint from a catastrophic one. Chow, Tamar, Mannor, and Pavone [7] provided
+the foundational CVaR-based framework for risk-sensitive and robust sequential decision-making, establishing
+CVaR as a coherent risk measure that can be optimized via convex reformulation,the theoretical basis this project
+
+builds its cost formulation on. Wang, Schuurmans, and Patrinos [8] proposed a sequential convexification
+algorithm for risk-sensitive, interaction-aware MPC with decision-dependent uncertainty, showing that a
+nonconvex risk-sensitive MPC problem can be solved efficiently as a sequence of convex problems,directly
+relevant to keeping a CVaR-SMPC solvable in real time on rover-class hardware.
+Closest to this proposal, Moon, Seong, Shim, Kim, Cho, and Lee [9] proposed a sampling-based MPC with
+CVaR-based risk assessment for off-road environments, building a recursive CVaR risk map from elevation data
+and demonstrating improved success rate and smoother motion over hybrid A* and standard MPC baselines on
+real ground-robot trials. This is the nearest prior work to the present proposal: it confirms that CVaR-weighted
+risk maps meaningfully improve off-road MPC safety. However,consistent with the sensing gap identified in
+Section 2,its risk map is built from terrain elevation data alone (i.e., LiDAR/camera geometry), and it does not
+model the underlying slip-sinkage dynamics that actually cause entrapment, nor does it draw on any
+physical/proprioceptive measurement of the rover's own wheel-soil interaction. It uses CVaR to reshape the
+sampling distribution of a path-integral planner from geometric risk, rather than to constrain a
+terramechanics-based dynamic model informed by physical sensing.
+The specific gap this project targets is therefore twofold: first, to replace or supplement LiDAR/camera-only,
+geometry-based risk estimation with direct physical measurement of wheel slip, sinkage, torque, and attitude,
+feeding a Bekker-Wong stochastic slip-sinkage model; and second, to couple that physically-grounded model
+directly with a CVaR-constrained SMPC optimization, so that the tail-risk of catastrophic sinkage,evaluated from
+actual soil-mechanical behaviour rather than surface appearance,is what shapes the rover's trajectory. This is
+expected to allow the controller to safely traverse and explore terrain that a geometry-only risk map would
+conservatively avoid, while remaining appropriately cautious in genuinely hazardous zones.
+
+5. Proposed Approach: From LiDAR/Camera to Physically-Grounded Risk (Initial Solution)
+The starting point for the controller is standard exteroceptive perception,LiDAR and camera data,used, as in prior
+work, for obstacle geometry and a coarse, appearance-based terrain classification (e.g., “sand,” “gravel,” “rock”).
+This alone, however, only estimates what the terrain looks like, not how it will mechanically behave under load.
+To close that gap, the following physical quantities are proposed as additional inputs, each already accessible
+from standard rover instrumentation or directly readable from the simulation environment:
+•​ Wheel slip ratio,computed by comparing commanded wheel angular velocity against actual ground speed
+
+(from visual odometry or wheel encoders); large, persistent mismatch indicates loss of traction consistent
+with soft or loose soil.
+•​ Wheel sinkage depth,measured via suspension deflection, or, in simulation, read directly from the physics
+
+engine's wheel-ground contact state.
+•​ Drive-motor torque / current,elevated torque at low forward speed indicates the wheel is working against
+
+soil resistance rather than rolling freely, a classic terramechanics signature of sinkage in progress.
+•​ IMU-sensed body pitch, roll, and vibration,detects asymmetric sinkage (e.g., one side of the rover sinking
+
+faster than the other) before it becomes visually obvious.
+
+These four signals are precisely the quantities that the Bekker-Wong equations relate to soil cohesion, internal
+friction angle, and sinkage exponent: cohesion and friction angle physically cause a given slip/sinkage/torque
+response, so observing the response allows the soil parameters,and hence the risk of further, worse sinkage,to
+be inferred, rather than merely guessed from appearance.
+Given the course timeline, the physical-sensing pipeline is proposed as an incremental, three-stage build,
+matching the project's three scheduled presentations:
+•​ Stage 1 (for the first presentation): known/assumed soil parameters are assigned per terrain patch from
+
+published terramechanics tables, to validate the CVaR-SMPC formulation and controller in isolation from
+the sensing problem.
+•​ Stage 2: coarse LiDAR/camera-based terrain classification is added, mapping each visual class to a
+
+parameter range (with uncertainty) drawn from the literature, so the controller must reason about
+imperfect, appearance-only knowledge,reproducing the limitation of prior work such as [9] as an explicit
+baseline.
+•​ Stage 3: the physical/proprioceptive signals above are added and fused with a recursive online estimator,
+
+so that soil parameters,and the resulting CVaR-bounded risk,are updated in situ as the rover drives, rather
+than assumed or classified from appearance alone.
+This staged approach directly supports the benchmarking objective in Section 3: at Stage 2, the controller is
+effectively equivalent in sensing to prior LiDAR/camera-only risk-aware planners, providing a fair baseline; at
+Stage 3, the added physical sensing is what should allow the rover to distinguish genuinely hazardous terrain
+from merely visually-ambiguous terrain, and therefore travel and explore more of the map safely rather than
+defaulting to conservative avoidance.
+
+6. Expected Outcomes
+•​ A mathematical formulation of the CVaR-SMPC controller specifically tailored to terramechanics-based
+
+slip-sinkage dynamics.
+•​ A functional software simulation (Python/MATLAB) demonstrating rover navigation over a stochastically
+
+generated terrain map with patchy high-risk zones.
+•​ A working online estimation pipeline that infers Bekker-Wong soil parameters from wheel slip, sinkage,
+
+torque, and IMU data, in addition to the baseline LiDAR/camera terrain classification.
+•​ Quantitative comparison of entrapment rate and mission-completion time against deterministic NMPC and
+
+Gaussian SMPC baselines, and specifically against a LiDAR/camera-only risk-map baseline (Stage 2), to
+isolate the benefit of the added physical sensing.
+•​ Visual analysis (trajectory maps / phase plots) showing that the prediction horizon actively routes the rover
+
+around zones of high tail-risk,and, where physical sensing confirms terrain is safer than it appears, through
+visually-ambiguous zones that a geometry-only planner would have avoided.
+
+References
+
+[1] W. Zheng and B. Zhu, “Stochastic time-varying model predictive control for trajectory tracking of a wheeled mobile
+robot,” Frontiers in Energy Research, vol. 9, Article 767597, 2021.
+[2] B. Li, H. Du, and B. Zhang, “Path planning for autonomous vehicle in off-road scenario,” in Path Planning for Autonomous
+Vehicles,Ensuring Reliable Driverless Navigation and Control Maneuver, IntechOpen, 2019.
+[3] J. He, Y. Sun, L. Yang, and F. Gao, “Model predictive control of a novel wheeled–legged planetary rover for trajectory
+tracking,” Sensors, vol. 22, no. 11, Article 4164, 2022.
+[4] G. Ishigami, A. Miwa, K. Nagatani, and K. Yoshida, “Terramechanics-based model for steering maneuver of planetary
+exploration rovers on loose soil,” Journal of Field Robotics, vol. 24, no. 3, pp. 233–250, 2007.
+[5] L. Ding, H.-B. Gao, Z.-Q. Deng, and J.-G. Tao, “Wheel slip-sinkage and its prediction model of lunar rover,” Journal of
+Central South University, vol. 17, pp. 129–135, 2010.
+[6] L. Blackmore, M. Ono, and B. C. Williams, “Chance-constrained optimal path planning with obstacles,” IEEE Transactions
+on Robotics, vol. 27, no. 6, pp. 1080–1094, 2011.
+[7] Y. Chow, A. Tamar, S. Mannor, and M. Pavone, “Risk-sensitive and robust decision-making: A CVaR optimization
+approach,” in Advances in Neural Information Processing Systems (NeurIPS), vol. 28, pp. 1522–1530, 2015.
+[8] R. Wang, M. Schuurmans, and P. Patrinos, “Risk-sensitive model predictive control for interaction-aware planning,a
+sequential convexification algorithm,” IEEE Control Systems Letters, vol. 9, 2025.
+[9] S. W. Moon, H. K. Seong, D. H. C. Shim, J. Y. Kim, J. Y. Cho, and Y. J. Lee, “Sampling-based model predictive control with
+CVaR-based risk assessment for off-road environments,” Journal of Institute of Control, Robotics and Systems, vol. 31,
+no. 9, pp. 1014–1021, 2025.
+
+
