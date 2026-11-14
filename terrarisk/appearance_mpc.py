@@ -41,7 +41,7 @@ class AppearanceMPCPlanner:
                 
                 # Fetch actual ground truth soil for evaluating sensor input
                 gt_soil = self.terrain.get_soil_parameters(state[0], state[1], stochastic=False)
-                v_class, prior_soil, uncertainty = self.sensor.classify_terrain(state[0], state[1], gt_soil)
+                v_class, prior_soil, uncertainty = self.sensor.classify_terrain(state[0], state[1], gt_soil, terrain=self.terrain)
                 
                 # Predict sinkage strictly based on visual appearance prior
                 z_vis, _, _ = self.rover.compute_sinkage_and_slip(state[3], prior_soil)

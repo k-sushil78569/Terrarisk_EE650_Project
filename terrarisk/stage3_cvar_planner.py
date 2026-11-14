@@ -1,15 +1,18 @@
 import numpy as np
 from .dynamics import RoverModel
-from .terrain import TerrainMap
+from .terrain import TerrainMap, SoilParameters, FIRM_SOIL, SOFT_REGOLITH
 from .appearance_sensor import AppearanceSensor
 from .online_estimator import OnlineSoilEstimator
 
 class Stage3PhysicallyGroundedCVaRPlanner:
     """
     Stage 3 CVaR-SMPC Planner featuring in situ proprioceptive soil parameter estimation.
-    Fuses wheel slip, sinkage depth, motor torque, and IMU data to continuously update Bekker-Wong soil estimates.
+    Fuses wheel slip, sinkage depth, motor torque, and IMU data to continuously update
+    Bekker-Wong soil estimates, maintaining a dynamic local risk memory to bypass
+    visually ambiguous entrapment zones.
     """
-    def __init__(self, rover: RoverModel, terrain: TerrainMap, sensor: AppearanceSensor, horizon=22, num_samples=350, alpha=0.90, dt=0.2):
+    def __init__(self, rover: RoverModel, terrain: TerrainMap, sensor: AppearanceSensor,
+                 horizon=18, num_samples=250, alpha=0.90, dt=0.2):
         self.rover = rover
         self.terrain = terrain
         self.sensor = sensor
@@ -21,7 +24,11 @@ class Stage3PhysicallyGroundedCVaRPlanner:
         
         self.noise_std = np.array([0.5, 0.6])
         self.temperature = 0.05
-        self.current_estimated_soil = None
+        self.current_estimated_soil = SoilParameters(c=3.0, phi_deg=28.0, kc=50.0, kphi=1000.0, n=0.8)
+        
+        # Spatial memory of physical anomalies detected by wheel interaction
+        # Each entry: (x, y, radius, estimated_soil)
+        self.anomaly_zones = []
         
     def compute_cvar(self, sinkage_samples: np.ndarray) -> float:
         sorted_samples = np.sort(sinkage_samples)
@@ -32,11 +39,50 @@ class Stage3PhysicallyGroundedCVaRPlanner:
     def update_online_sensing(self, current_state: np.ndarray):
         """
         Reads physical observations (sinkage, slip, torque) and updates estimator.
+        Flags terrain anomalies when physical resistance disagrees with visual confidence.
         """
         gt_soil = self.terrain.get_soil_parameters(current_state[0], current_state[1], stochastic=True)
         z_actual, slip_actual, torque_actual = self.rover.compute_sinkage_and_slip(current_state[3], gt_soil)
         
-        self.current_estimated_soil = self.estimator.update(z_actual, slip_actual, torque_actual, current_state[3])
+        self.current_estimated_soil = self.estimator.update(
+            z_actual, slip_actual, torque_actual, current_state[3]
+        )
+        
+        # Anomaly detection: if physical interaction indicates soft/compressible regolith
+        # (high slip, elevated sinkage, or low estimated cohesion)
+        if z_actual > 0.035 or slip_actual > 0.35 or self.current_estimated_soil.c < 2.5:
+            # Check if this anomaly is already mapped
+            already_mapped = False
+            for ax, ay, arad, _ in self.anomaly_zones:
+                if np.hypot(current_state[0] - ax, current_state[1] - ay) < 4.0:
+                    already_mapped = True
+                    break
+            if not already_mapped:
+                self.anomaly_zones.append((
+                    float(current_state[0]),
+                    float(current_state[1]),
+                    7.5,
+                    self.current_estimated_soil
+                ))
+
+    def get_fused_soil_at(self, x: float, y: float, v_rover: float) -> SoilParameters:
+        """
+        Fuses visual prior map with in situ proprioceptive anomaly memory.
+        """
+        # 1. Check physical anomaly memory first (ground truth experience)
+        for ax, ay, arad, est_soil in self.anomaly_zones:
+            dist = np.hypot(x - ax, y - ay)
+            if dist < arad:
+                return est_soil
+
+        # 2. Check current rover location: if currently experiencing soft ground, extrapolate locally
+        if self.current_estimated_soil.c < 2.5:
+            # Nearby region within 5m is likely soft
+            return self.current_estimated_soil
+
+        # 3. Fall back to exteroceptive visual prior
+        v_class, prior_soil, _ = self.sensor.classify_terrain(x, y, terrain=self.terrain)
+        return prior_soil
 
     def plan(self, current_state: np.ndarray, goal_pos: np.ndarray, prev_controls: np.ndarray = None) -> tuple[np.ndarray, dict]:
         """
@@ -63,8 +109,9 @@ class Stage3PhysicallyGroundedCVaRPlanner:
                 u_t = np.clip(U[t] + delta_U[k, t], [-1.2, -1.2], [1.2, 1.2])
                 state = self.rover.step_kinematics(state, u_t, self.dt)
                 
-                # Fetch online estimated soil parameters for dynamic prediction
-                z, slip, _ = self.rover.compute_sinkage_and_slip(state[3], self.current_estimated_soil)
+                # Fetch fused physical/visual soil parameters for dynamic prediction
+                soil = self.get_fused_soil_at(state[0], state[1], state[3])
+                z, slip, _ = self.rover.compute_sinkage_and_slip(state[3], soil)
                 sample_sinkages.append(z)
                 
                 dist_to_goal = np.hypot(state[0] - goal_pos[0], state[1] - goal_pos[1])
@@ -76,7 +123,7 @@ class Stage3PhysicallyGroundedCVaRPlanner:
             
         cvar_risk = self.compute_cvar(max_sinkages)
         
-        # Severe penalty on predicted sinkage exceeding safe operating envelope
+        # Severe penalty on predicted sinkage exceeding safe operating envelope (50% of z_crit)
         cvar_threshold = self.rover.z_crit * 0.50
         tail_penalty = 15000.0 * np.maximum(0.0, max_sinkages - cvar_threshold)**2
         total_costs = costs + tail_penalty
@@ -90,7 +137,8 @@ class Stage3PhysicallyGroundedCVaRPlanner:
         info = {
             "cvar_risk": cvar_risk,
             "estimated_cohesion": self.current_estimated_soil.c,
-            "estimated_friction_deg": np.degrees(self.current_estimated_soil.phi)
+            "estimated_friction_deg": np.degrees(self.current_estimated_soil.phi),
+            "num_anomaly_zones": len(self.anomaly_zones)
         }
         
         return U_opt, info
