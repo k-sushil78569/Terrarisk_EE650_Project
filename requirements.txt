@@ -1,0 +1,10 @@
+numpy>=1.21.0
+scipy>=1.8.0
+matplotlib>=3.5.0
+pychrono
+pandas
+seaborn
+# Note: pychrono is used for high-fidelity simulation but is not available via standard pip.
+# To install pychrono, you need conda:
+# conda install -c projectchrono pychrono
+# The simulator will gracefully fall back to an analytical engine if pychrono is missing.
