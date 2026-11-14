@@ -27,54 +27,7 @@ The complete closed-loop navigation cycle runs at each receding-horizon time ste
   <img src="data_flow_diagram.jpg" alt="TerraRisk System Data Flow Diagram" width="850"/>
 </p>
 
-```mermaid
-flowchart TD
-    subgraph SENSING["1 · Sensing"]
-        direction LR
-        subgraph LEFT_SENSE["Exteroceptive"]
-            S_EXT["Exteroceptive sensors<br/>Camera, LiDAR"] --> S_VIS["Visual prior map<br/>Initial c, φ guess"]
-        end
-        subgraph RIGHT_SENSE["Proprioceptive"]
-            S_PRO["Proprioceptive sensors<br/>Encoders, IMU, torque"] --> S_OBS["Observed signals<br/>Slip s, sinkage z, torque T"]
-        end
-    end
 
-    subgraph ESTIMATOR["2 · Soil estimator"]
-        E_PRED["Predict<br/>Bekker-Wong"] --> E_INNOV["Innovation<br/>Obs - predicted"]
-        E_INNOV --> E_KALMAN["Kalman update<br/>Gain correction"]
-        E_KALMAN --> E_SOIL["Soil estimate<br/>c, φ, Kc, Kφ"]
-    end
-
-    subgraph PLANNER["3 · CVaR-MPPI planner"]
-        P_ROLL["Sample rollouts<br/>M = 350, N = 22"] --> P_DYN["Propagate dynamics<br/>Bekker-Wong sinkage"]
-        P_DYN --> P_SPREAD["Sinkage spread<br/>Max z per rollout"]
-        P_SPREAD --> P_CVAR["CVaR tail risk<br/>Worst 10%, α = 0.90"]
-        P_CVAR --> P_BARRIER["Barrier penalty<br/>λ · max(0, z - z_safe)²"]
-        P_BARRIER --> P_WEIGHTS["Importance weights<br/>Softmax over costs"]
-    end
-
-    subgraph EXECUTION["4 · Execution"]
-        X_ACTION["Apply first action<br/>u₀*, then replan"] --> X_ACTUATOR["Rover actuators<br/>Wheel drive, steering"]
-        X_ACTUATOR --> X_GROUND["Deformable ground<br/>True soil response"]
-    end
-
-    %% Inter-tier connections
-    S_VIS -.->|"Visual prior guidance"| P_ROLL
-    S_OBS -->|"Observed [z, s, T]"| E_INNOV
-    E_SOIL -->|"In situ parameters"| P_DYN
-    P_WEIGHTS -->|"Optimal control u₀*"| X_ACTION
-    X_GROUND -->|"Proprioceptive feedback"| S_PRO
-
-    classDef senseStyle fill:#e6f4ea,stroke:#34a853,stroke-width:1.5px,color:#137333;
-    classDef estStyle fill:#e8f0fe,stroke:#4285f4,stroke-width:1.5px,color:#1a73e8;
-    classDef planStyle fill:#f3e8fd,stroke:#9334e6,stroke-width:1.5px,color:#7627bb;
-    classDef execStyle fill:#fef7e0,stroke:#f9ab00,stroke-width:1.5px,color:#b06000;
-
-    class S_EXT,S_VIS,S_PRO,S_OBS senseStyle;
-    class E_PRED,E_INNOV,E_KALMAN,E_SOIL estStyle;
-    class P_ROLL,P_DYN,P_SPREAD,P_CVAR,P_BARRIER,P_WEIGHTS planStyle;
-    class X_ACTION,X_ACTUATOR,X_GROUND execStyle;
-```
 
 ### Detailed Pipeline Stages:
 1. **1 · Sensing:**
