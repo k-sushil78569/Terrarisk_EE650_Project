@@ -3,10 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Output images
-*.png
-*.jpg
-*.jpeg
+# # Output images
+# *.png
+# *.jpg
+# *.jpeg
 
 # Environments
 .env
